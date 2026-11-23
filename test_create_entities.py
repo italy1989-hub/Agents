@@ -17,7 +17,9 @@ def confirm_step(message: str) -> bool:
 # Искусственные данные, имитирующие вывод extract_contact_from_image
 mock_data = {
     "company": "ООО Ромашка",
-    "contact_name": "Иванов Иван Иванович",
+    "first_name": "Иван",
+    "last_name": "Иванов",
+    "second_name": "Иванович",
     "position": "Директор",
     "phones": ["+79991112233"],
     "emails": ["ivanov@romashka.ru"],

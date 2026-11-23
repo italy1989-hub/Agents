@@ -1,12 +1,31 @@
 import base64
 import json
 import time
+import re
 from pathlib import Path
+from urllib import response
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
 from llm_factory import get_llm
 from bitrix_client import find_duplicates as _find_dups, create_company as _create_company, create_contact as _create_contact, create_deal as _create_deal
 from utils import timeit
+from pydantic import BaseModel, ValidationError
+
+class CardData(BaseModel):
+    company: str = ""
+    first_name: str = ""
+    last_name: str = ""
+    second_name: str = ""
+    position: str = ""
+    phones: list[str] = []
+    emails: list[str] = []
+    notes: str = ""
+
+def _parse_card(text: str) -> CardData:
+    m = re.search(r"\{.*\}", text, re.S)   # берём первый JSON-объект, игнорируя обёртки
+    if not m:
+        raise ValueError("В ответе модели нет JSON")
+    return CardData.model_validate_json(m.group(0))
 
 @tool
 @timeit
@@ -35,7 +54,8 @@ def extract_contact_from_image(image_path: str) -> str:
                 "Правила заполнения полей:\n"
                 "- company: Юридическое название компании (например, 'Beyond the Network Limited'), "
                 "если его нет — используй крупный логотип.\n"
-                "- contact_name: Имя и фамилия человека.\n"
+                "- first_name, last_name, second_name: имя, фамилия, отчество человека по отдельности "
+                "(отчество, если его нет, оставь пустым).\n"
                 "- position: Только явно указанная должность (CEO, Manager и т.д.). "
                 "- phones: Массив всех телефонов, очищенных от лишних символов, но с сохранением формата.\n"
                 "- emails: Массив всех email.\n"
@@ -68,14 +88,10 @@ def extract_contact_from_image(image_path: str) -> str:
 
 
         # Пытаемся извлечь JSON из ответа (модель может обернуть в ```json)
-        text = response.content
-        if "```" in text:
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        return text.strip()
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+        card = _parse_card(response.content)
+    except (ValueError, ValidationError) as e:
+        return json.dumps({"error": f"Не удалось разобрать ответ модели: {e}"}, ensure_ascii=False)
+    return card.model_dump_json()
 
 @tool
 def find_bitrix_duplicates(contact_json: str) -> str:
@@ -90,9 +106,12 @@ def find_bitrix_duplicates(contact_json: str) -> str:
     emails = data.get("emails", [])
     phones = data.get("phones", [])
     result = _find_dups(emails, phones)
-    # Если была сетевая ошибка, агент должен знать, что нельзя создавать запись
     if result.get("error"):
-        return json.dumps({"status": "error", "message": "Не удалось проверить дубли из-за ошибки сети. Создание запрещено."})
+        return json.dumps({"status": "error",
+            "message": "Не удалось проверить дубли из-за ошибки. Создание запрещено."})
+    if not result.get("searched"):
+        return json.dumps({"status": "error",
+            "message": "На визитке нет ни телефона, ни email — проверить дубли нельзя. Нужна ручная проверка."})
     return json.dumps(result, ensure_ascii=False)
 
 @tool
@@ -106,14 +125,14 @@ def create_bitrix_company(contact_json: str) -> str:
         return json.dumps({"status": "error", "message": str(e)})
 
 @tool
-def create_bitrix_contact(contact_json: str, company_id: int) -> str:
-    """Создает контакт в Bitrix24 и привязывает к компании. Возвращает JSON с ID контакта."""
-    data = json.loads(contact_json)
+def create_bitrix_contact(contact_json: str, company_id: int | None = None) -> str:
+    """Создает контакт в Bitrix24; company_id необязателен. Возвращает JSON с ID контакта."""
     try:
+        data = json.loads(contact_json)
         contact_id = _create_contact(data, company_id)
         return json.dumps({"contact_id": contact_id, "status": "success"})
-    except Exception as e:
-        return json.dumps({"status": "error", "message": str(e)})
+    except (json.JSONDecodeError, BitrixError) as e:
+        return json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False)
 
 @tool
 def create_bitrix_deal(contact_json: str, company_id: int = None, contact_id: int = None) -> str:
