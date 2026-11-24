@@ -20,7 +20,7 @@ def get_llm() -> BaseChatModel:
             credentials=os.getenv("GIGACHAT_CREDENTIALS"),
             scope=os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS"),
             model=os.getenv("GIGACHAT_MODEL", "GigaChat"),
-            verify_ssl_certs=False,  # Для тестового контура Сбера
+            verify_ssl_certs=os.getenv("GIGACHAT_VERIFY_SSL", "false").lower() == "true",  # Для тестового контура Сбера
             streaming=False,
             auto_upload_attachments=True,
             timeout=120.0,

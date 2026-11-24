@@ -2,14 +2,24 @@ import base64
 import json
 import time
 import re
+import os
 from pathlib import Path
 from urllib import response
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
 from llm_factory import get_llm
-from bitrix_client import find_duplicates as _find_dups, create_company as _create_company, create_contact as _create_contact, create_deal as _create_deal
+from bitrix_client import (BitrixError, find_duplicates as _find_dups, create_company as _create_company, create_contact as _create_contact, create_deal as _create_deal)
 from utils import timeit
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
+
+ALLOWED_DIR = Path(os.getenv("CARDS_DIR", Path(__file__).parent / "tests" / "cards")).resolve()
+ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".webp"}
+
+def _load_obj(raw: str) -> dict:
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("Ожидался JSON-объект")
+    return data
 
 class CardData(BaseModel):
     company: str = ""
@@ -21,17 +31,53 @@ class CardData(BaseModel):
     emails: list[str] = []
     notes: str = ""
 
-def _parse_card(text: str) -> CardData:
-    m = re.search(r"\{.*\}", text, re.S)   # берём первый JSON-объект, игнорируя обёртки
-    if not m:
+    @field_validator("company", "first_name", "last_name", "second_name",
+                     "position", "notes", mode="before")
+    @classmethod
+    def _none_to_str(cls, v):
+        return "" if v is None else v
+
+    @field_validator("phones", "emails", mode="before")
+    @classmethod
+    def _none_to_list(cls, v):
+        return [] if v is None else v
+    
+def explain_path_error(image_path: str) -> str:
+    p = Path(image_path).resolve()
+    if not p.is_relative_to(ALLOWED_DIR):
+        return f"Файл вне разрешённой папки. Разрешено: {ALLOWED_DIR}, получено: {p}"
+    if p.suffix.lower() not in ALLOWED_EXT:
+        return f"Недопустимое расширение: {p.suffix}"
+    return f"Файл не найден: {p}"
+
+def safe_card_path(image_path: str) -> Path | None:
+    path = Path(image_path).resolve()
+    if not path.is_relative_to(ALLOWED_DIR) or path.suffix.lower() not in ALLOWED_EXT:
+        return None
+    return path if path.exists() else None
+
+def _parse_card(text) -> CardData:
+    if isinstance(text, list):  # content-блоки (Claude)
+        text = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in text)
+    start = text.find("{")
+    if start == -1:
         raise ValueError("В ответе модели нет JSON")
-    return CardData.model_validate_json(m.group(0))
+    obj, _ = json.JSONDecoder().raw_decode(text[start:])  # читает ровно один объект
+    return CardData.model_validate(obj)
 
 @tool
 @timeit
 def extract_contact_from_image(image_path: str) -> str:
     """Извлекает контактные данные с изображения визитки.
     Возвращает JSON с полями: company, contact_name, position, phones, emails, notes."""
+
+    path = safe_card_path(image_path)
+    if path is None:
+        return json.dumps({"error": "Недопустимый путь или файл не найден"}, ensure_ascii=False)
+    if not path.is_relative_to(ALLOWED_DIR) or path.suffix.lower() not in ALLOWED_EXT:
+        return json.dumps({"error": "Недопустимый путь к файлу"}, ensure_ascii=False)
+    if not path.exists():
+        return json.dumps({"error": f"Файл не найден: {image_path}"}, ensure_ascii=False)
     path = Path(image_path)
     if not path.exists():
         return json.dumps({"error": f"Файл не найден: {image_path}"})
@@ -99,9 +145,9 @@ def find_bitrix_duplicates(contact_json: str) -> str:
     Ищет дубли контактов и компаний в Bitrix24.
     Возвращает JSON: {'contacts': [id...], 'companies': [id...]}."""
     try:
-        data = json.loads(contact_json)
-    except json.JSONDecodeError:
-        return json.dumps({"error": "Некорректный JSON"})
+        data = _load_obj(contact_json)
+    except ValueError:
+        return json.dumps({"error": "Некорректный JSON"}, ensure_ascii=False)
 
     emails = data.get("emails", [])
     phones = data.get("phones", [])
@@ -117,29 +163,33 @@ def find_bitrix_duplicates(contact_json: str) -> str:
 @tool
 def create_bitrix_company(contact_json: str) -> str:
     """Создает компанию в Bitrix24 на основе JSON. Возвращает JSON с ID компании."""
-    data = json.loads(contact_json)
     try:
+        data = _load_obj(contact_json)
         company_id = _create_company(data)
         return json.dumps({"company_id": company_id, "status": "success"})
-    except Exception as e:
-        return json.dumps({"status": "error", "message": str(e)})
+    except (ValueError, BitrixError) as e:
+        return json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False)
+
 
 @tool
 def create_bitrix_contact(contact_json: str, company_id: int | None = None) -> str:
     """Создает контакт в Bitrix24; company_id необязателен. Возвращает JSON с ID контакта."""
     try:
-        data = json.loads(contact_json)
+        data = _load_obj(contact_json)
         contact_id = _create_contact(data, company_id)
         return json.dumps({"contact_id": contact_id, "status": "success"})
-    except (json.JSONDecodeError, BitrixError) as e:
+    except (ValueError, BitrixError) as e:
         return json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False)
 
+
 @tool
-def create_bitrix_deal(contact_json: str, company_id: int = None, contact_id: int = None) -> str:
+def create_bitrix_deal(contact_json: str, company_id: int | None = None,
+                       contact_id: int | None = None,
+                       assigned_by_id: int | None = None) -> str:
     """Создает сделку в Bitrix24. Возвращает JSON с ID сделки."""
-    data = json.loads(contact_json)
     try:
-        deal_id = _create_deal(data, company_id, contact_id)
+        data = _load_obj(contact_json)
+        deal_id = _create_deal(data, company_id, contact_id, assigned_by_id)
         return json.dumps({"deal_id": deal_id, "status": "success"})
-    except Exception as e:
-        return json.dumps({"status": "error", "message": str(e)})
+    except (ValueError, BitrixError) as e:
+        return json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False)

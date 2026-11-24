@@ -152,25 +152,23 @@ def create_company(company_data: dict) -> int:
     data = _call_bitrix("crm.company.add", payload)
     return data.get("result")
 
+PATRONYMIC = re.compile(r"(ович|евич|ьич|овна|евна|ична)$", re.I)
+
+def split_name(full: str) -> tuple[str, str, str]:
+    """Запасной вариант: (имя, фамилия, отчество). Надёжен только для русских ФИО из 3 слов."""
+    p = full.split()
+    if len(p) == 3:
+        if PATRONYMIC.search(p[2]):   # Фамилия Имя Отчество
+            return p[1], p[0], p[2]
+        if PATRONYMIC.search(p[1]):   # Имя Отчество Фамилия
+            return p[0], p[2], p[1]
+    if len(p) == 2:
+        return p[0], p[1], ""
+    return (p[0] if p else ""), "", ""
+
 @timeit
 def create_contact(contact_data: dict, company_id: int = None) -> int:
     """Создает контакт. Возвращает ID."""
-    full_name = contact_data.get("contact_name", "")
-    PATRONYMIC = re.compile(r"(ович|евич|ьич|овна|евна|ична)$", re.I)
-
-    def split_name(full: str) -> tuple[str, str, str]:
-        """Запасной вариант: (имя, фамилия, отчество). Надёжен только для русских ФИО из 3 слов."""
-        p = full.split()
-        if len(p) == 3:
-            if PATRONYMIC.search(p[2]):   # Фамилия Имя Отчество
-                return p[1], p[0], p[2]
-            if PATRONYMIC.search(p[1]):   # Имя Отчество Фамилия
-                return p[0], p[2], p[1]
-        if len(p) == 2:
-            return p[0], p[1], ""         
-        return (p[0] if p else ""), "", ""
-
-    # внутри create_contact:
     if contact_data.get("first_name") or contact_data.get("last_name"):
         first, last, second = (contact_data.get("first_name", ""),
                             contact_data.get("last_name", ""),
@@ -199,9 +197,10 @@ def create_contact(contact_data: dict, company_id: int = None) -> int:
     return data.get("result")
 
 @timeit
-def create_deal(contact_data: dict, company_id: int = None, contact_id: int = None) -> int:
+def create_deal(contact_data: dict, company_id: int = None, contact_id: int = None,
+                assigned_by_id: int | None = None) -> int:
     """Создает сделку. Возвращает ID."""
-    title = f"Сделка: {contact_data.get('company', 'Новая сделка')}"
+    title = f"Сделка: {contact_data.get('company') or 'Новая сделка'}"
 
     payload = {
         "fields": {
@@ -214,6 +213,22 @@ def create_deal(contact_data: dict, company_id: int = None, contact_id: int = No
         payload["fields"]["COMPANY_ID"] = company_id
     if contact_id:
         payload["fields"]["CONTACT_ID"] = contact_id
+    if assigned_by_id:
+        payload["fields"]["ASSIGNED_BY_ID"] = assigned_by_id
 
     data = _call_bitrix("crm.deal.add", payload)
     return data.get("result")
+
+def find_open_deals(company_id: int | None = None, contact_id: int | None = None) -> list[dict]:
+    """Открытые сделки по контакту или компании, с ответственным."""
+    if contact_id:
+        flt = {"CONTACT_ID": contact_id, "CLOSED": "N"}
+    elif company_id:
+        flt = {"COMPANY_ID": company_id, "CLOSED": "N"}
+    else:
+        return []
+    data = _call_bitrix("crm.deal.list", {
+        "filter": flt,
+        "select": ["ID", "TITLE", "ASSIGNED_BY_ID", "STAGE_ID"],
+    })
+    return data.get("result", [])
