@@ -30,12 +30,17 @@ CONNECT_TIMEOUT = float(os.getenv("BITRIX_CONNECT_TIMEOUT", "5"))
 READ_TIMEOUT = float(os.getenv("BITRIX_READ_TIMEOUT", "30"))
 WRITE_TIMEOUT = float(os.getenv("BITRIX_WRITE_TIMEOUT", "90"))
 
+def _base_url(is_write: bool) -> str:
+    read = os.getenv("BITRIX_WEBHOOK_READ")
+    base = BITRIX_WEBHOOK if (is_write or not read) else read
+    if not base:
+        raise BitrixError("BITRIX_WEBHOOK не задан в .env")
+    return base.rstrip("/")
+
 @timeit
 def _call_bitrix(method: str, params: dict, retries: int = 4) -> dict:
-    if not BITRIX_WEBHOOK:
-        raise BitrixError("BITRIX_WEBHOOK не задан в .env")
-    url = f"{BITRIX_WEBHOOK.rstrip('/')}/{method}"
     is_write = method.endswith(WRITE_SUFFIXES)
+    url = f"{_base_url(is_write)}/{method}"
 
     global _last_call
     for attempt in range(retries + 1):
