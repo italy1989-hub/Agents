@@ -1,15 +1,20 @@
 import sys
 import uuid
+import os
 
 from langgraph.types import Command
 from graph import build_graph
+from dotenv import load_dotenv
+
+load_dotenv()
+print(f"TEST_MODE={os.getenv('TEST_MODE')}, TEST_MARKER={os.getenv('TEST_MARKER')!r}")
 
 graph = build_graph()
 
 def process(image_path: str, user_bitrix_id: int | None = None) -> str:
     cfg = {"configurable": {"thread_id": str(uuid.uuid4())}}
     out = graph.invoke({"image_path": image_path, "user_bitrix_id": user_bitrix_id}, cfg)
-    if out.get("__interrupt__"):
+    while out.get("__interrupt__"):
         summary = out["__interrupt__"][0].value["summary"]
         ok = input(f"\n{summary}\nПодтвердить? (y/n): ").strip().lower() == "y"
         out = graph.invoke(Command(resume=ok), cfg)

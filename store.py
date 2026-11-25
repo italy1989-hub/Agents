@@ -19,3 +19,7 @@ def put(sha: str, status: str, ids: dict) -> None:
     with _conn() as c:
         c.execute("INSERT OR REPLACE INTO processed_cards VALUES (?,?,?)",
                   (sha, status, json.dumps(ids)))
+
+def delete(sha: str) -> None:
+    with _conn() as c:
+        c.execute("DELETE FROM processed_cards WHERE sha=?", (sha,))

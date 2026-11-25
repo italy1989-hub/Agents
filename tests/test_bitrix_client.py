@@ -108,3 +108,49 @@ def test_duplicates_are_merged_and_deduped(monkeypatch):
     monkeypatch.setattr(bc, "_call_bitrix", fake)
     r = bc.find_duplicates(["a@b.ru"], ["+79991112233"])
     assert r["contacts"] == [1, 2, 3] and r["error"] is False
+
+def _wh(monkeypatch):
+    monkeypatch.setattr(bc, "BITRIX_WEBHOOK", "https://x/rest/1/k/")
+    monkeypatch.setattr(bc.time, "sleep", lambda s: None)
+
+def test_write_read_timeout_not_retried(monkeypatch):
+    _wh(monkeypatch)
+    n = []
+    def post(*a, **k): n.append(1); raise requests.ReadTimeout("slow")
+    monkeypatch.setattr(bc.requests, "post", post)
+    with pytest.raises(bc.BitrixTimeout):
+        bc._call_bitrix("crm.company.add", {})
+    assert len(n) == 1
+
+def test_connect_timeout_is_retried_even_for_write(monkeypatch):
+    _wh(monkeypatch)
+    class R:
+        status_code = 200
+        def json(self): return {"result": 5}
+        def raise_for_status(self): pass
+    seq = [requests.ConnectTimeout("x"), requests.ConnectTimeout("x"), R()]
+    def post(*a, **k):
+        v = seq.pop(0)
+        if isinstance(v, Exception): raise v
+        return v
+    monkeypatch.setattr(bc.requests, "post", post)
+    assert bc._call_bitrix("crm.company.add", {})["result"] == 5
+
+def _timeout_then_list(result):
+    def fake(method, params):
+        if method.endswith(".add"):
+            raise bc.BitrixTimeout("t")
+        return {"result": result}
+    return fake
+
+def test_timeout_then_record_found_returns_its_id(monkeypatch):
+    _wh(monkeypatch); monkeypatch.setattr(bc, "TEST_MODE", False)
+    monkeypatch.setattr(bc, "_call_bitrix", _timeout_then_list([{"ID": "77"}]))
+    assert bc.create_company({"company": "X"}) == 77
+
+@pytest.mark.parametrize("found", [[], [{"ID": "1"}, {"ID": "2"}]])
+def test_timeout_then_zero_or_many_raises(monkeypatch, found):
+    _wh(monkeypatch); monkeypatch.setattr(bc, "TEST_MODE", False)
+    monkeypatch.setattr(bc, "_call_bitrix", _timeout_then_list(found))
+    with pytest.raises(bc.BitrixTimeout):
+        bc.create_company({"company": "X"})
