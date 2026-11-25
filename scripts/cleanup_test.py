@@ -1,5 +1,5 @@
 import sys
-import bitrix_client as bx
+from core import bitrix as bx
 
 MARKER = bx.TEST_MARKER
 ENTITIES = [  # (list, delete, поле, где стоит маркер); сделки, затем контакты, затем компании

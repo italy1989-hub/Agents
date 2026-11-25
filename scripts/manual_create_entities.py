@@ -1,7 +1,7 @@
 import os
 import json
 from dotenv import load_dotenv
-from bitrix_client import create_company, create_contact, create_deal
+from core.bitrix import create_company, create_contact, create_deal
 
 # Загружаем переменные из .env
 load_dotenv()

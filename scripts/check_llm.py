@@ -1,4 +1,4 @@
-from llm_factory import get_llm
+from core.llm import get_llm
 
 llm = get_llm()
 response = llm.invoke("Ответь одним словом: работает?")

@@ -1,4 +1,4 @@
-from decide import decide
+from cards.decide import decide
 
 CARD = {"company": "Ромашка"}
 def D(contacts=(), companies=()):

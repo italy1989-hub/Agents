@@ -1,5 +1,5 @@
 import json
-from bitrix_client import find_duplicates
+from core.bitrix import find_duplicates
 
 # Используем реальные данные любого контакта из bitrix
 contact_data = {

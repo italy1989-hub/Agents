@@ -7,9 +7,9 @@ from pathlib import Path
 from urllib import response
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
-from llm_factory import get_llm
-from bitrix_client import (BitrixError, find_duplicates as _find_dups, create_company as _create_company, create_contact as _create_contact, create_deal as _create_deal)
-from utils import timeit
+from core.llm import get_llm
+from core.bitrix import (BitrixError, find_duplicates as _find_dups, create_company as _create_company, create_contact as _create_contact, create_deal as _create_deal)
+from core.utils import timeit
 from pydantic import BaseModel, ValidationError, field_validator
 
 ALLOWED_DIR = Path(os.getenv("CARDS_DIR", Path(__file__).parent / "tests" / "cards")).resolve()

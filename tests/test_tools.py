@@ -2,7 +2,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-import tools
+from cards import tools
 
 
 # ---------- _parse_card: «грязные» ответы модели ----------

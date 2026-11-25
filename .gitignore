@@ -1,5 +1,8 @@
-.venv/
 .env
-.vscode/
+.venv/
 __pycache__/
-*.pyc
+.pytest_cache/
+state.db
+audit.db
+reports/
+tests/cards/

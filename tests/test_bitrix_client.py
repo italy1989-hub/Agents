@@ -5,9 +5,8 @@ import threading
 import time
 import requests
 from dotenv import load_dotenv
-from utils import timeit
 import pytest
-import bitrix_client as bc
+from core import bitrix as bc
 
 def test_normalize_phone():
     assert bc.normalize_phone("8 (999) 111-22-33") == "+79991112233"

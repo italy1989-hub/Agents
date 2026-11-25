@@ -7,10 +7,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-import bitrix_client as bx
-import store
-import tools
-from decide import decide
+from core import bitrix as bx
+from core import store
+from cards import tools
+from cards.decide import decide
 
 
 class CardState(TypedDict, total=False):

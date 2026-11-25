@@ -1,6 +1,6 @@
 import hashlib
 import sys
-import store
+from core import store
 
 sha = hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest()
 store.delete(sha)

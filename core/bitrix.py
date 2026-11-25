@@ -5,7 +5,7 @@ import threading
 import time
 import re
 from dotenv import load_dotenv
-from utils import timeit
+from core.utils import timeit
 
 load_dotenv()
 
