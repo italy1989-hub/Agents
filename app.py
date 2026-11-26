@@ -1,4 +1,5 @@
 import argparse
+from datetime import date, timedelta
 import logging
 
 
@@ -12,8 +13,8 @@ def main():
 
     a = sub.add_parser("audit", help="Задача 2: аудит базы (только чтение)")
     a.add_argument("action", choices=["export", "stats", "report"])
-    a.add_argument("--window", type=int, default=180, help="окно поиска коммуникации, дней")
-    a.add_argument("--activity-days", type=int, default=365, help="за сколько дней выгружать активности")
+    a.add_argument("--activity-days", type=int, default=None)
+    a.add_argument("--simulate-days", type=int, help="симуляция: отсчёт начался N дней назад")
 
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -25,16 +26,12 @@ def main():
             ask=lambda s: input(f"\n{s}\nПодтвердить? (y/n): ").strip().lower() == "y"))
     else:
         from audit.config import AuditConfig
-        if args.action == "export":
-            from audit.export import export_all
-            export_all(args.activity_days)
-        elif args.action == "stats":
-            from audit.report import activity_breakdown
-            for row in activity_breakdown():
-                print(row)
-        else:
-            from audit.report import build_report, load_protected
-            print(build_report(AuditConfig(window_days=args.window), protected=load_protected()))
+        from audit.report import build_report
+        cfg = AuditConfig()
+        if args.simulate_days:
+            cfg.simulate = True
+            cfg.launch_date = date.today() - timedelta(days=args.simulate_days)
+        print(build_report(cfg))
 
 
 if __name__ == "__main__":

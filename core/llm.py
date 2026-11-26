@@ -5,7 +5,12 @@ from langchain_core.language_models import BaseChatModel
 load_dotenv()
 
 
-def get_llm() -> BaseChatModel:
+LOCAL_ONLY = {"finance"}
+
+def get_llm(purpose: str = "default") -> BaseChatModel:
+    provider = (os.getenv(f"LLM_PROVIDER_{purpose.upper()}") or os.getenv("LLM_PROVIDER", "gigachat")).lower()
+    if purpose in LOCAL_ONLY and provider != "qwen":
+        raise RuntimeError(f"Для '{purpose}' разрешены только локальные модели, получено: {provider}")
     """
     Возвращает LLM в зависимости от переменной окружения LLM_PROVIDER.
     Поддерживает: gigachat, claude, qwen.

@@ -6,6 +6,7 @@ import time
 import re
 from dotenv import load_dotenv
 from core.utils import timeit
+from core.env import env_int, env_str
 
 load_dotenv()
 
@@ -31,11 +32,20 @@ READ_TIMEOUT = float(os.getenv("BITRIX_READ_TIMEOUT", "30"))
 WRITE_TIMEOUT = float(os.getenv("BITRIX_WRITE_TIMEOUT", "90"))
 
 def _base_url(is_write: bool) -> str:
-    read = os.getenv("BITRIX_WEBHOOK_READ")
+    read = env_str("BITRIX_WEBHOOK_READ")
     base = BITRIX_WEBHOOK if (is_write or not read) else read
-    if not base:
-        raise BitrixError("BITRIX_WEBHOOK не задан в .env")
+    if read and not read.startswith("http"):
+        raise BitrixError("BITRIX_WEBHOOK_READ должен быть ссылкой вида https://.../rest/<id>/<ключ>/")
     return base.rstrip("/")
+
+def _common_fields(assigned_by_id: int | None) -> dict:
+    f = {}
+    if assigned_by_id:
+        f["ASSIGNED_BY_ID"] = assigned_by_id
+    source = env_str("BITRIX_SOURCE_ID")
+    if source:
+        f["SOURCE_ID"] = source
+    return f
 
 @timeit
 def _call_bitrix(method: str, params: dict, retries: int = 4) -> dict:
@@ -86,7 +96,10 @@ def _call_bitrix(method: str, params: dict, retries: int = 4) -> dict:
 
     raise BitrixError(f"{method}: исчерпаны попытки")
 
+EXT = re.compile(r"\s*(?:ext\.?|x|доб\.?|добавочный)\s*\d+\s*$", re.I)
+
 def normalize_phone(raw: str) -> str | None:
+    raw = EXT.sub("", raw or "")
     if not raw:
         return None
     digits = re.sub(r"\D", "", raw)
@@ -166,7 +179,7 @@ def _add_checked(add_method: str, list_method: str, payload: dict, flt: dict) ->
         raise  # 0 или несколько совпадений: решает человек
 
 @timeit
-def create_company(company_data: dict) -> int:
+def create_company(company_data: dict, assigned_by_id: int | None = None) -> int:
     """Создает компанию в Битрикс24. Возвращает ID."""
     title = company_data.get("company") or "Без названия"
     notes = company_data.get("notes", "")
@@ -184,6 +197,7 @@ def create_company(company_data: dict) -> int:
     if company_data.get("emails"):
         payload["fields"]["EMAIL"] = [{"VALUE": e, "VALUE_TYPE": "WORK"} for e in company_data["emails"]]
 
+    payload["fields"].update(_common_fields(assigned_by_id))
     return _add_checked("crm.company.add", "crm.company.list", payload,
                     {"TITLE": payload["fields"]["TITLE"]})
 
@@ -202,7 +216,8 @@ def split_name(full: str) -> tuple[str, str, str]:
     return (p[0] if p else ""), "", ""
 
 @timeit
-def create_contact(contact_data: dict, company_id: int = None) -> int:
+def create_contact(contact_data: dict, company_id: int | None = None,
+                   assigned_by_id: int | None = None) -> int:
     """Создает контакт. Возвращает ID."""
     if contact_data.get("first_name") or contact_data.get("last_name"):
         first, last, second = (contact_data.get("first_name", ""),
@@ -231,10 +246,11 @@ def create_contact(contact_data: dict, company_id: int = None) -> int:
     flt = {"NAME": payload["fields"]["NAME"], "LAST_NAME": payload["fields"]["LAST_NAME"]}
     if company_id:
         flt["COMPANY_ID"] = company_id
+    payload["fields"].update(_common_fields(assigned_by_id))
     return _add_checked("crm.contact.add", "crm.contact.list", payload, flt)
 
 @timeit
-def create_deal(contact_data: dict, company_id: int = None, contact_id: int = None,
+def create_deal(contact_data: dict, company_id: int | None = None, contact_id: int | None = None,
                 assigned_by_id: int | None = None) -> int:
     """Создает сделку. Возвращает ID."""
     title = f"Сделка: {contact_data.get('company') or 'Новая сделка'}"
@@ -250,12 +266,16 @@ def create_deal(contact_data: dict, company_id: int = None, contact_id: int = No
         payload["fields"]["COMPANY_ID"] = company_id
     if contact_id:
         payload["fields"]["CONTACT_ID"] = contact_id
-    if assigned_by_id:
-        payload["fields"]["ASSIGNED_BY_ID"] = assigned_by_id
 
     flt = {"TITLE": payload["fields"]["TITLE"]}
     if company_id:
         flt["COMPANY_ID"] = company_id
+    payload["fields"].update(_common_fields(assigned_by_id))
+    category, stage = env_int("BITRIX_DEAL_CATEGORY_ID"), env_str("BITRIX_DEAL_STAGE_ID")
+    if category:
+        payload["fields"]["CATEGORY_ID"] = category
+    if stage:
+        payload["fields"]["STAGE_ID"] = stage
     return _add_checked("crm.deal.add", "crm.deal.list", payload, flt)
 
 def find_open_deals(company_id: int | None = None, contact_id: int | None = None) -> list[dict]:

@@ -111,15 +111,16 @@ def approve_entities(state: CardState):
 
 
 def execute_entities(state: CardState):
+    owner = state.get("user_bitrix_id")
     plan, card = state["plan"], state["card"]
     company_id, contact_id = plan["company_id"], plan["contact_id"]
     created: dict = {}
     try:
         if plan["create_company"]:
-            company_id = bx.create_company(card)
+            company_id = bx.create_company(card, assigned_by_id=owner)
             created["company_id"] = company_id
         if plan["create_contact"]:
-            contact_id = bx.create_contact(card, company_id)
+            contact_id = bx.create_contact(card, company_id, assigned_by_id=owner)
             created["contact_id"] = contact_id
     except bx.BitrixError as e:
         store.put(state["sha"], "partial", created)

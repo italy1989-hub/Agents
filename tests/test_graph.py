@@ -18,8 +18,8 @@ def env(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(g.bx, "find_duplicates",
         lambda e, p: {"contacts": [], "companies": [], "error": False, "searched": True})
-    monkeypatch.setattr(g.bx, "create_company", lambda c: calls.append("company") or 1)
-    monkeypatch.setattr(g.bx, "create_contact", lambda c, cid=None: calls.append("contact") or 2)
+    monkeypatch.setattr(g.bx, "create_company", lambda c, assigned_by_id=None: calls.append("company") or 1)
+    monkeypatch.setattr(g.bx, "create_contact", lambda c, cid=None, assigned_by_id=None: calls.append("contact") or 2)
     monkeypatch.setattr(g.bx, "create_deal",
         lambda c, co=None, ct=None, a=None: calls.append(("deal", co, ct, a)) or 3)
     return img, calls

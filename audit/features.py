@@ -1,76 +1,77 @@
 import json
-import re
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass, field
+from datetime import date
 
-from audit.config import AuditConfig
-
-DM_RE = re.compile(
-    r"директор|руковод|владелец|основател|учредител|управляющ|председател|"
-    r"\bceo\b|\bcoo\b|\bcto\b|\bcfo\b|founder|owner|president|\bhead\b|director|partner", re.I)
 GENERIC_LOCALS = {"info", "office", "sales", "contact", "contacts", "mail", "admin", "hello",
                   "support", "service", "zakaz", "post", "secretary", "reception", "general"}
 
-FEATURE_SQL = """
-SELECT c.id, c.title, c.manager_id, c.emails,
-  (SELECT COUNT(*) FROM deals d
-     WHERE d.company_id = c.id AND d.stage_semantic = 'P') AS open_deals,
-  (SELECT COUNT(*) FROM deals d
-     WHERE d.company_id = c.id AND d.stage_semantic = 'S' AND d.date_modify >= :won_since) AS recent_won,
-  COALESCE(SUM(a.direction = 1 AND a.created >= :since), 0) AS inbound,
-  COALESCE(SUM(a.direction = 2 AND a.created >= :since), 0) AS outbound,
-  COALESCE(SUM(a.completed = 'N' AND a.deadline >= :now), 0) AS planned,
+FACTS_SQL = """
+SELECT c.id, c.title, c.manager_id, c.emails, c.return_date,
+  (SELECT MAX(o.since) FROM ownership o WHERE o.company_id = c.id) AS assigned_since,
   MAX(CASE WHEN a.direction = 1 THEN a.created END) AS last_inbound,
-  MAX(a.created) AS last_any
+  COUNT(a.id) AS activities_total
 FROM companies c LEFT JOIN activities a ON a.company_id = c.id
 GROUP BY c.id
 """
 
 
 @dataclass
-class Features:
+class CompanyFacts:
     company_id: int
     title: str
     manager_id: int | None
-    open_deals: int = 0
-    recent_won: int = 0
-    inbound: int = 0
-    outbound: int = 0
-    planned: int = 0
-    last_inbound: str | None = None
-    last_any: str | None = None
-    has_dm: bool = False
+    assigned_since: date | None = None
+    return_date: date | None = None
+    last_inbound: date | None = None
+    next_step: str | None = None
+    next_step_deadline: date | None = None
+    managers: set[int] = field(default_factory=set)
+    cards: int = 0
+    activities_total: int = 0
     only_generic_emails: bool = False
+    contact_ids: list[int] = field(default_factory=list)
+    deal_ids: list[int] = field(default_factory=list)
 
 
-def _fmt(dt: datetime) -> str:
-    return dt.strftime("%Y-%m-%dT%H:%M:%S")
+def _d(s: str | None) -> date | None:
+    return date.fromisoformat(s[:10]) if s else None
 
 
-def compute_features(db, cfg: AuditConfig, now: datetime | None = None) -> list[Features]:
-    """now: UTC-время без tzinfo (для тестов можно задать)."""
-    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
-    params = {"now": _fmt(now),
-              "since": _fmt(now - timedelta(days=cfg.window_days)),
-              "won_since": _fmt(now - timedelta(days=cfg.won_days))}
-
+def compute_facts(db, today: date) -> list[CompanyFacts]:
     contacts: dict[int, list] = {}
-    for r in db.execute("SELECT company_id, post, emails FROM contacts WHERE company_id IS NOT NULL"):
+    for r in db.execute("SELECT id, company_id, manager_id, emails FROM contacts "
+                        "WHERE company_id IS NOT NULL"):
         contacts.setdefault(r["company_id"], []).append(r)
 
+    deals: dict[int, list] = {}  # только открытые сделки («в процессе»)
+    for r in db.execute("SELECT id, company_id, manager_id FROM deals "
+                        "WHERE company_id IS NOT NULL AND stage_semantic = 'P'"):
+        deals.setdefault(r["company_id"], []).append(r)
+
+    steps: dict[int, object] = {}  # ближайшее запланированное дело со сроком
+    for r in db.execute("SELECT company_id, subject, deadline FROM activities "
+                        "WHERE completed = 'N' AND deadline >= ? AND company_id IS NOT NULL "
+                        "ORDER BY deadline", (today.isoformat(),)):
+        steps.setdefault(r["company_id"], r)
+
     result = []
-    for r in db.execute(FEATURE_SQL, params):
-        cts = contacts.get(r["id"], [])
+    for r in db.execute(FACTS_SQL):
+        cts, dls = contacts.get(r["id"], []), deals.get(r["id"], [])
+        managers = {m for m in [r["manager_id"], *(x["manager_id"] for x in cts),
+                                *(x["manager_id"] for x in dls)] if m}
         addrs = json.loads(r["emails"] or "[]")
         for ct in cts:
             addrs += json.loads(ct["emails"] or "[]")
-        result.append(Features(
+        step = steps.get(r["id"])
+        result.append(CompanyFacts(
             company_id=r["id"], title=r["title"] or "", manager_id=r["manager_id"],
-            open_deals=r["open_deals"], recent_won=r["recent_won"],
-            inbound=r["inbound"], outbound=r["outbound"], planned=r["planned"],
-            last_inbound=r["last_inbound"], last_any=r["last_any"],
-            has_dm=any(DM_RE.search(ct["post"] or "") for ct in cts),
+            assigned_since=_d(r["assigned_since"]), return_date=_d(r["return_date"]),
+            last_inbound=_d(r["last_inbound"]),
+            next_step=step["subject"] if step else None,
+            next_step_deadline=_d(step["deadline"]) if step else None,
+            managers=managers, cards=len(cts) + len(dls),
+            activities_total=r["activities_total"],
             only_generic_emails=bool(addrs) and all(
                 a.split("@")[0].lower() in GENERIC_LOCALS for a in addrs),
-        ))
+            contact_ids=[x["id"] for x in cts], deal_ids=[x["id"] for x in dls]))
     return result

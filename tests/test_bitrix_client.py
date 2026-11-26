@@ -153,3 +153,21 @@ def test_timeout_then_zero_or_many_raises(monkeypatch, found):
     monkeypatch.setattr(bc, "_call_bitrix", _timeout_then_list(found))
     with pytest.raises(bc.BitrixTimeout):
         bc.create_company({"company": "X"})
+
+def test_assignee_on_company_and_contact(captured):
+    bc.create_company({"company": "X"}, assigned_by_id=15)
+    bc.create_contact({"first_name": "Иван"}, assigned_by_id=15)
+    assert captured[0][1]["fields"]["ASSIGNED_BY_ID"] == 15
+    assert captured[1][1]["fields"]["ASSIGNED_BY_ID"] == 15
+
+def test_phone_extension_is_dropped():
+    assert bc.normalize_phone("+52 (442) 103-0500 x 1277") == "+524421030500"
+    assert bc.normalize_phone("8 (999) 111-22-33 доб. 45") == "+79991112233"
+
+def test_deal_funnel_and_source_from_env(captured, monkeypatch):
+    monkeypatch.setenv("BITRIX_DEAL_CATEGORY_ID", "5")
+    monkeypatch.setenv("BITRIX_DEAL_STAGE_ID", "C5:NEW")
+    monkeypatch.setenv("BITRIX_SOURCE_ID", "VISITKA")
+    bc.create_deal({"company": "X"})
+    f = captured[0][1]["fields"]
+    assert (f["CATEGORY_ID"], f["STAGE_ID"], f["SOURCE_ID"]) == (5, "C5:NEW", "VISITKA")
