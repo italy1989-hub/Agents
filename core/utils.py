@@ -1,18 +1,18 @@
-import time
 import functools
-from typing import Callable, Any
+import logging
+import time
+from typing import Any, Callable
+
+log = logging.getLogger("timing")
+
 
 def timeit(func: Callable) -> Callable:
-    """Декоратор для замера времени выполнения функции."""
+    """Декоратор для замера времени выполнения функции (пишет на уровне DEBUG)."""
     @functools.wraps(func)
     def wrapper(*args, **kwargs) -> Any:
-        start_time = time.perf_counter()
+        start = time.perf_counter()
         try:
-            result = func(*args, **kwargs)
-            return result
+            return func(*args, **kwargs)
         finally:
-            end_time = time.perf_counter()
-            duration = end_time - start_time
-            # Выводим в консоль, чтобы видеть в реальном времени
-            print(f"⏱️ [Время] {func.__name__} выполнен за {duration:.4f} сек.")
+            log.debug("⏱️ %s выполнен за %.4f сек.", func.__name__, time.perf_counter() - start)
     return wrapper

@@ -4,6 +4,12 @@ from pathlib import Path
 
 from core import bitrix as bx
 from core.env import env_int, env_str
+from dotenv import dotenv_values
+
+_shadowed = [k for k, v in dotenv_values(".env").items()
+             if v is not None and k in os.environ and os.environ[k] != v]
+for k in _shadowed:
+    print(f"ВНИМАНИЕ  {k}: значение в терминале отличается от .env и перекрывает его (unset {k})")
 
 CHECKS = [("BITRIX_WEBHOOK", env_str), ("BITRIX_WEBHOOK_READ", env_str),
           ("AUDIT_POOL_USER_ID", env_int), ("BITRIX_DEAL_CATEGORY_ID", env_int),

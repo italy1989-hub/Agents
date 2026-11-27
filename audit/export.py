@@ -34,6 +34,10 @@ def _utc(s: str | None) -> str | None:
 def _int(v) -> int | None:
     return int(v) if v not in (None, "", "0", 0) else None
 
+def _int0(v) -> int | None:
+    """Как _int, но 0 остаётся числом (воронка 0 основная)."""
+    return int(v) if v not in (None, "") else None
+
 
 def _values(field) -> str:
     return json.dumps([x["VALUE"] for x in (field or []) if x.get("VALUE")], ensure_ascii=False)
@@ -155,7 +159,7 @@ def export_all(activity_days: int | None = None, db_path: str | None = None) -> 
             db.execute("INSERT INTO deals VALUES (?,?,?,?,?,?,?,?,?,?,?)", (
                 int(r["ID"]), r.get("TITLE"), _int(r.get("COMPANY_ID")), _int(r.get("CONTACT_ID")),
                 _int(r.get("ASSIGNED_BY_ID")), r.get("STAGE_ID"), r.get("STAGE_SEMANTIC_ID"),
-                r.get("CLOSED"), _int(r.get("CATEGORY_ID")),
+                r.get("CLOSED"), _int0(r.get("CATEGORY_ID")),
                 _utc(r.get("DATE_CREATE")), _utc(r.get("DATE_MODIFY"))))
 
         for r in iter_all("crm.activity.list",

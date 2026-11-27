@@ -10,6 +10,13 @@ from audit.features import compute_facts
 from audit.rules import ACTIVE, EXPIRED, EXPIRED_PLAN, POOL, REVIEW_STATUSES, evaluate
 from core.links import card_url
 
+def activity_breakdown(db_path: str | None = None) -> list[tuple]:
+    """Из чего состоит общение в базе: (тип, провайдер, направление, количество)."""
+    db = connect(db_path)
+    return [tuple(r) for r in db.execute(
+        "SELECT type_id, provider_id, direction, COUNT(*) FROM activities "
+        "GROUP BY 1, 2, 3 ORDER BY 4 DESC")]
+
 COLUMNS = ["Ответственный", "ID компании", "Компания", "Статус", "Отметки", "Начало отсчёта",
            "Срок до", "Последнее входящее", "Следующий шаг", "Срок шага", "Причины",
            "Карточка компании", "Контакты и сделки"]

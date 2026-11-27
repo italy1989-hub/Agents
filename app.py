@@ -1,6 +1,7 @@
+import os
 import argparse
-from datetime import date, timedelta
 import logging
+from datetime import date, timedelta
 
 
 def main():
@@ -13,17 +14,31 @@ def main():
 
     a = sub.add_parser("audit", help="Задача 2: аудит базы (только чтение)")
     a.add_argument("action", choices=["export", "stats", "report"])
-    a.add_argument("--activity-days", type=int, default=None)
-    a.add_argument("--simulate-days", type=int, help="симуляция: отсчёт начался N дней назад")
+    a.add_argument("--activity-days", type=int, default=None,
+                   help="за сколько дней выгружать активности")
+    a.add_argument("--simulate-days", type=int,
+                   help="симуляция: отсчёт начался N дней назад")
 
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    logging.getLogger("urllib3").setLevel(logging.WARNING)   # urllib3 печатает полный адрес вебхука, то есть ключ
+    if os.getenv("LOG_TIMING"):
+        logging.getLogger("timing").setLevel(logging.DEBUG)  # замеры времени, по желанию
 
     if args.task == "cards":
         from cards.service import process_card
         print(process_card(
             args.image, args.user,
             ask=lambda s: input(f"\n{s}\nПодтвердить? (y/n): ").strip().lower() == "y"))
+        return
+
+    if args.action == "export":
+        from audit.export import export_all
+        export_all(args.activity_days)
+    elif args.action == "stats":
+        from audit.report import activity_breakdown
+        for row in activity_breakdown():
+            print(row)
     else:
         from audit.config import AuditConfig
         from audit.report import build_report

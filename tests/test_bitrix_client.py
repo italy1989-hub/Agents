@@ -171,3 +171,8 @@ def test_deal_funnel_and_source_from_env(captured, monkeypatch):
     bc.create_deal({"company": "X"})
     f = captured[0][1]["fields"]
     assert (f["CATEGORY_ID"], f["STAGE_ID"], f["SOURCE_ID"]) == (5, "C5:NEW", "VISITKA")
+
+def test_redact_hides_webhook_secret(monkeypatch):
+    monkeypatch.setattr(bc, "BITRIX_WEBHOOK", "https://p.bitrix24.ru/rest/1/abc123/")
+    for text in ("url: /rest/1/abc123/crm.company.add", "https://p.bitrix24.ru/rest/1/abc123/x"):
+        assert "abc123" not in bc._redact(text)

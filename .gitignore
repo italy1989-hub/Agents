@@ -6,3 +6,6 @@ state.db
 audit.db
 reports/
 tests/cards/
+logs/
+backups/
+

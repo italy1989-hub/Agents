@@ -38,6 +38,13 @@ def _base_url(is_write: bool) -> str:
         raise BitrixError("BITRIX_WEBHOOK_READ должен быть ссылкой вида https://.../rest/<id>/<ключ>/")
     return base.rstrip("/")
 
+def _redact(text: str) -> str:
+    """Убирает секретный ключ вебхука из текста (ошибки, логи)."""
+    for hook in (BITRIX_WEBHOOK, os.getenv("BITRIX_WEBHOOK_READ")):
+        if hook:
+            text = text.replace(hook.rstrip("/"), "https://***")
+    return re.sub(r"/rest/\d+/[A-Za-z0-9]+", "/rest/***", text)
+
 def _common_fields(assigned_by_id: int | None) -> dict:
     f = {}
     if assigned_by_id:
@@ -67,14 +74,14 @@ def _call_bitrix(method: str, params: dict, retries: int = 4) -> dict:
         except requests.ConnectTimeout as e:
             # запрос не дошёл до сервера: повтор безопасен даже для записи
             if attempt == retries:
-                raise BitrixError(f"{method}: не удалось подключиться: {e}") from e
+                raise BitrixError(_redact(f"{method}: не удалось подключиться: {e}")) from None
             time.sleep(2 ** attempt)
             continue
         except (requests.Timeout, requests.ConnectionError) as e:
             if is_write:
-                raise BitrixTimeout(f"{method}: нет ответа, запись могла пройти: {e}") from e
+                raise BitrixTimeout(_redact(f"{method}: нет ответа, запись могла пройти: {e}")) from None
             if attempt == retries:
-                raise BitrixError(f"{method}: сетевая ошибка: {e}") from e
+                raise BitrixError(_redact(f"{method}: сетевая ошибка: {e}")) from None
             time.sleep(2 ** attempt)
             continue
 
